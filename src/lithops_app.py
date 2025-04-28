@@ -13,7 +13,7 @@ def spawn_lithops_jobs(
     jobs: list[ChunkProcessingJob], array: zarr.Array, debug: bool
 ) -> list[ChunkProcessingResult | None]:
     base_fexec = lithops.FunctionExecutor(
-        runtime="serverless-datacube", runtime_memory=16 * 256
+        runtime="serverless-datacube-icechunk", runtime_memory=16 * 256
     )
     retry_fexec = lithops.RetryingFunctionExecutor(base_fexec)
     futures = [

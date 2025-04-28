@@ -157,20 +157,21 @@ def main(
     else:
         raise NotImplementedError
 
-    target_array = zarr.open(storage.get_zarr_store(), path=job_config.varname)
+    with storage.get_zarr_store() as store:
+        target_array = zarr.open_array(
+            store, path=job_config.varname, zarr_format=3, mode="a"
+        )
 
-    # click.echo(f"Spawning {len(jobs)} jobs")
-
-    with click.progressbar(
-        jobs,
-        label=f"Spawning {len(jobs)} jobs",
-        length=len(jobs),
-    ) as jobs_progress:
-        # all the work happens here
-        results = spawn(jobs_progress, target_array, debug=debug)
+        with click.progressbar(
+            jobs,
+            label=f"Spawning {len(jobs)} jobs",
+            length=len(jobs),
+        ) as jobs_progress:
+            # all the work happens here
+            results = spawn(jobs_progress, target_array, debug=debug)
 
     # commit changes only of successful
-    storage.commit(f"Processed {len(jobs)} chunks")
+    storage.commit(f"Processed {len(jobs)} chunks", results=results)
 
     # save logs
     log_fname = f"logs/{int(datetime.now().timestamp())}-{serverless_backend}.csv"

@@ -48,6 +48,8 @@ RUN unzip lithops_lambda.zip \
 # Put your dependencies here, using RUN pip install... or RUN apt install...
 RUN pip install --upgrade --no-cache-dir --ignore-installed \
     arraylake \
+    "dask<2025.3.0" \
+    "icechunk>=0.2.15" \
     pystac-client \
     odc-stac \
     odc-geo \

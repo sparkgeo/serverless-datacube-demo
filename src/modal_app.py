@@ -16,7 +16,7 @@ image = (
         "odc-algo",
         "rasterio",
         "cartopy",
-        "zarr>=2.17.2",
+        "zarr<3",
         "s3fs",
         channels=["conda-forge"],
     )

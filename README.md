@@ -69,7 +69,7 @@ Vermont Datacube (monthly for 4 years), store in Arraylake
 
 ```
 python src/main.py --start-date 2020-01-01 --end-date 2023-12-31 --bbox -73.43 42.72 -71.47 45.02 \
---arraylake-repo-name "earthmover-demos/sentinel-datacube-Vermont" --arraylake-bucket-nickname earthmover-demo-bucket \
+--arraylake-repo-name "earthmover-demos/sentinel-datacube-Vermont" \
 --storage-backend arraylake --serverless-backend lithops
 ```
 

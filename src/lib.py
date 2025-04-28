@@ -13,7 +13,7 @@ from time import perf_counter, time
 from typing import Generator
 
 import dask
-import numpy as np
+import icechunk
 import odc.stac
 import pandas as pd
 import pystac_client
@@ -84,19 +84,27 @@ class JobConfig:
             .transpose(..., "band")
         ).to_dataset(name=self.varname)
         big_ds.attrs["title"] = "Sentinel 2 Data Cube"
+        big_ds.longitude.attrs["axis"] = "X"
+        big_ds.latitude.attrs["axis"] = "Y"
+        big_ds.time.attrs["axis"] = "T"
+        big_ds.time.attrs["standard_name"] = "time"
 
-        lon_encoding = optimize_coord_encoding(big_ds.longitude.values, self.dx)
-        lat_encoding = optimize_coord_encoding(big_ds.latitude.values, -self.dx)
+        ## Needs refactoring to work with Zarr 3
+        # lon_encoding = optimize_coord_encoding(big_ds.longitude.values, self.dx)
+        # lat_encoding = optimize_coord_encoding(big_ds.latitude.values, -self.dx)
+
+        lon_encoding = {}  # type: ignore
+        lat_encoding = {}  # type: ignore
         encoding = {
             "longitude": {"chunks": big_ds.longitude.shape, **lon_encoding},
             "latitude": {"chunks": big_ds.latitude.shape, **lat_encoding},
             "time": {
                 "chunks": big_ds.time.shape,
-                "compressor": zarr.Blosc(cname="zstd"),
+                # "compressor": zarr.Blosc(cname="zstd"),
             },
             "rgb_median": {
                 "chunks": (1,) + self.chunk_shape + (len(self.bands),),
-                "compressor": zarr.Blosc(cname="zstd"),
+                # "compressor": zarr.Blosc(cname="zstd"),
                 # workaround to create a fill value for the underlying zarr array
                 # since Xarray doesn't let us specify one explicitly
                 "_FillValue": 0,
@@ -105,12 +113,13 @@ class JobConfig:
         }
 
         print(big_ds)
-        big_ds.to_zarr(
-            storage.get_zarr_store(),
-            encoding=encoding,
-            compute=False,
-            zarr_version=storage.zarr_version,
-        )
+        with storage.get_zarr_store() as store:
+            big_ds.to_zarr(
+                store,
+                encoding=encoding,
+                compute=False,
+                zarr_version=storage.zarr_version,
+            )
         storage.commit("Wrote initial dataset schema")
 
     def generate_jobs(
@@ -143,6 +152,7 @@ class ChunkProcessingResult:
     write_duration: float
     region: str | None
     cloud_provider: str | None
+    session: icechunk.Session | None = None
 
 
 @dataclass(frozen=True)
@@ -212,9 +222,10 @@ class ChunkProcessingJob:
                 cloud_provider=os.environ.get("MODAL_CLOUD_PROVIDER", None),
             )
 
+        bands = list(self.config.bands)
         ds = odc.stac.load(
             items,
-            bands=["scl"] + list(self.config.bands),
+            bands=["scl"] + bands,
             chunks={"time": 1, "x": 600, "y": 600},
             geobox=geobox,
             resampling="bilinear",
@@ -227,7 +238,7 @@ class ChunkProcessingJob:
 
         cloud_mask = ~ds.scl.isin(allowed_values)
         cloud_mask = mask_cleanup(cloud_mask, [("closing", 5), ("opening", 5)])
-        ds_masked = erase_bad(ds[["red", "green", "blue"]], cloud_mask)
+        ds_masked = erase_bad(ds[bands], cloud_mask)
 
         rgb_median = (
             ds_masked.where(ds_masked > 0)
@@ -265,6 +276,11 @@ class ChunkProcessingJob:
 
         tic4 = perf_counter()
 
+        try:
+            session = target_array.store.session
+        except AttributeError:
+            session = None
+
         return ChunkProcessingResult(
             success=True,
             num_scenes=len(items),
@@ -274,33 +290,36 @@ class ChunkProcessingJob:
             write_duration=tic4 - tic3,
             region=os.environ.get("MODAL_REGION", None),
             cloud_provider=os.environ.get("MODAL_CLOUD_PROVIDER", None),
+            session=session,
         )
 
 
-def optimize_coord_encoding(values, dx):
-    dx_all = np.diff(values)
-    # dx = dx_all[0]
-    np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
+## Needs refactoring to work with Zarr 3
 
-    offset_codec = zarr.FixedScaleOffset(
-        offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
-    )
-    delta_codec = zarr.Delta("i8", "i2")
-    compressor = zarr.Blosc(cname="zstd")
+# def optimize_coord_encoding(values, dx):
+#     dx_all = np.diff(values)
+#     # dx = dx_all[0]
+#     np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
 
-    enc0 = offset_codec.encode(values)
-    # everything should be offset by 1 at this point
-    np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
-    enc1 = delta_codec.encode(enc0)
-    # now we should be able to compress the shit out of this
-    enc2 = compressor.encode(enc1)
-    decoded = offset_codec.decode(delta_codec.decode(compressor.decode(enc2)))
+#     offset_codec = zarr.FixedScaleOffset(
+#         offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
+#     )
+#     delta_codec = zarr.Delta("i8", "i2")
+#     compressor = zarr.Blosc(cname="zstd")
 
-    # will produce numerical precision differences
-    # np.testing.assert_equal(values, decoded)
-    np.testing.assert_allclose(values, decoded)
+#     enc0 = offset_codec.encode(values)
+#     # everything should be offset by 1 at this point
+#     np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
+#     enc1 = delta_codec.encode(enc0)
+#     # now we should be able to compress the shit out of this
+#     enc2 = compressor.encode(enc1)
+#     decoded = offset_codec.decode(delta_codec.decode(compressor.decode(enc2)))
 
-    return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
+# # will produce numerical precision differences
+# # np.testing.assert_equal(values, decoded)
+# np.testing.assert_allclose(values, decoded)
+
+# return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
 
 
 def save_output_log(results: list[ChunkProcessingResult], fname: str) -> None:
