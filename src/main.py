@@ -4,9 +4,7 @@ import click
 import zarr
 from coiled_app import spawn_coiled_jobs
 from lib import JobConfig, save_output_log
-from lithops_app import spawn_lithops_jobs
-from modal_app import spawn_modal_jobs
-from storage import ArraylakeStorage, ZarrFSSpecStorage
+from storage import ZarrFSSpecStorage
 
 
 @click.command()
@@ -72,18 +70,15 @@ from storage import ArraylakeStorage, ZarrFSSpecStorage
 @click.option(
     "--serverless-backend",
     required=True,
-    type=click.Choice(["coiled", "modal", "lithops"]),
+    default="coiled",
+    type=click.Choice(["coiled"]),
 )
 @click.option(
     "--storage-backend",
     required=True,
-    type=click.Choice(["arraylake", "fsspec"]),
-    default="arraylake",
+    type=click.Choice(["fsspec"]),
+    default="fsspec",
     show_default=True,
-)
-@click.option(
-    "--arraylake-repo-name",
-    help="Name of the Arraylake repo to use for storage.",
 )
 @click.option("--fsspec-uri")
 @click.option(
@@ -115,7 +110,6 @@ def main(
     epsg: str,
     serverless_backend: str,
     storage_backend: str,
-    arraylake_repo_name: str | None,
     fsspec_uri: str | None,
     limit: int | None,
     initialize: bool,
@@ -133,10 +127,7 @@ def main(
         chunk_size=chunk_size,
     )
 
-    if storage_backend == "arraylake":
-        storage = ArraylakeStorage(repo_name=arraylake_repo_name)
-    elif storage_backend == "fsspec":
-        storage = ZarrFSSpecStorage(uri=fsspec_uri)
+    storage = ZarrFSSpecStorage(uri=fsspec_uri)
 
     if initialize:
         job_config.create_dataset_schema(storage)
@@ -148,12 +139,8 @@ def main(
     ) as job_gen:
         jobs = list(job_gen)
 
-    if serverless_backend == "lithops":
-        spawn = spawn_lithops_jobs
-    elif serverless_backend == "coiled":
+    if serverless_backend == "coiled":
         spawn = spawn_coiled_jobs
-    elif serverless_backend == "modal":
-        spawn = spawn_modal_jobs
     else:
         raise NotImplementedError
 
@@ -174,7 +161,7 @@ def main(
     storage.commit(f"Processed {len(jobs)} chunks", results=results)
 
     # save logs
-    log_fname = f"logs/{int(datetime.now().timestamp())}-{serverless_backend}.csv"
+    log_fname = f"./logs/{int(datetime.now().timestamp())}-{serverless_backend}.csv"
     save_output_log(results, log_fname)
 
 

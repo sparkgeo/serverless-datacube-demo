@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 
 @coiled.function(
-    cpu=4, region="us-west-2", environ={"ZARR_V3_EXPERIMENTAL_API": "1"}, keepalive="5m"
+    cpu=4, region="ca-central-1", environ={"ZARR_V3_EXPERIMENTAL_API": "1"}, keepalive="5m"
 )
 def process_chunk(
     job: ChunkProcessingJob, array: zarr.Array, debug: bool
