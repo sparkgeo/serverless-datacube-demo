@@ -5,9 +5,60 @@ import zarr
 from coiled_app import spawn_coiled_jobs
 from lib import JobConfig, save_output_log
 from storage import ZarrFSSpecStorage
+from grid import load_geometry_file, load_grid_for_aoi, GridSpec, majortom_generator, square_tiling_generator
 
 
 @click.command()
+@click.option(
+    "--geometry-file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Geometry file (GPKG, Shapefile, GeoJSON, etc.) to use as AOI. Alternative to --bbox.",
+)
+@click.option(
+    "--geometry-layer",
+    default=None,
+    help="Layer name for multi-layer geometry formats (GeoPackage, Shapefile).",
+)
+@click.option(
+    "--bbox",
+    type=click.Tuple([float, float, float, float]),
+    default=None,
+    help="Bounding box in lat/lon (min_lon, min_lat, max_lon, max_lat). Required if --geometry-file not provided.",
+)
+@click.option(
+    "--grid-generator",
+    type=click.Choice(["majortom", "square"]),
+    default="majortom",
+    show_default=True,
+    help="Grid generation strategy (requires --geometry-file). 'majortom' uses MajorTom cells; 'square' uses regular grid squares.",
+)
+@click.option(
+    "--grid-d",
+    type=int,
+    default=512,
+    show_default=True,
+    help="Grid dimension (MajorTom:  size; square: cell size in meters). Only used with --geometry-file.",
+)
+@click.option(
+    "--grid-overlap/--no-grid-overlap",
+    default=True,
+    show_default=True,
+    help="Enable overlapping cells (MajorTom only). Only used with --geometry-file.",
+)
+@click.option(
+    "--grid-crs",
+    default="EPSG:32610",
+    show_default=True,
+    help="Target CRS for grid cells. Only used with --geometry-file.",
+)
+@click.option(
+    "--grid-res",
+    type=int,
+    default=16,
+    show_default=True,
+    help="Mosaic resolution in meters for GeoBox alignment. Only used with --geometry-file.",
+)
 @click.option(
     "--start-date",
     type=click.DateTime(),
@@ -19,13 +70,6 @@ from storage import ZarrFSSpecStorage
     type=click.DateTime(),
     required=True,
     help="Start date for the data cube. Everything but year and month will be ignored.",
-)
-@click.option(
-    "--bbox",
-    required=True,
-    type=click.Tuple([float, float, float, float]),
-    help="Bounding box for the data cube in lat/lon. "
-    "(min_lon, min_lat, max_lon, max_lat)",
 )
 @click.option(
     "--time-frequency-months",
@@ -99,9 +143,16 @@ from storage import ZarrFSSpecStorage
     help="Initialize the Zarr store before processing.",
 )
 def main(
+    geometry_file: str | None,
+    geometry_layer: str | None,
+    bbox: tuple[float, float, float, float] | None,
+    grid_generator: str,
+    grid_d: int,
+    grid_overlap: bool,
+    grid_crs: str,
+    grid_res: int,
     start_date: datetime,
     end_date: datetime,
-    bbox: tuple[float, float, float, float],
     time_frequency_months: int,
     resolution: float,
     chunk_size: int,
@@ -115,10 +166,51 @@ def main(
     initialize: bool,
     debug: bool,
 ):
+    # Validate AOI input
+    if not geometry_file and not bbox:
+        raise click.UsageError("Must provide either --geometry-file or --bbox")
+    
+    if geometry_file and bbox:
+        raise click.UsageError("Provide only one of --geometry-file or --bbox, not both")
+    
+    # Determine bounds
+    if geometry_file:
+        try:
+            # Create grid from geometry file
+            grid_spec = GridSpec(
+                d=grid_d,
+                overlap=grid_overlap,
+                target_crs=grid_crs,
+                res_m=grid_res,
+            )
+            
+            # Create generator based on user choice
+            if grid_generator == "majortom":
+                generator = majortom_generator(d=grid_d, overlap=grid_overlap)
+            else:  # square
+                generator = square_tiling_generator(cell_size_m=grid_d, work_crs=grid_crs)
+            
+            # Generate grid
+            cells_4326, cells_target, gbox_mosaic = load_grid_for_aoi(
+                geometry_file,
+                spec=grid_spec,
+                layer=geometry_layer,
+                generator=generator,
+            )
+            
+            bounds = tuple(cells_4326.total_bounds)
+            click.echo(f"✓ Loaded geometry from {geometry_file}")
+            click.echo(f"✓ Generated {len(cells_target)} grid cells using {grid_generator}")
+        except Exception as e:
+            click.echo(f"✗ Error: {e}", err=True)
+            raise SystemExit(1)
+    else:
+        bounds = bbox
+    
     job_config = JobConfig(
         dx=resolution,
         epsg=int(epsg),
-        bounds=bbox,
+        bounds=bounds,  # type: ignore
         start_date=start_date,
         end_date=end_date,
         time_frequency_months=time_frequency_months,
