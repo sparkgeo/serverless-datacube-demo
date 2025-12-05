@@ -16,6 +16,8 @@ import dask
 import icechunk
 import odc.stac
 import pandas as pd
+import geopandas as gpd
+from shapely.geometry import box
 import pystac_client
 import zarr
 from cartopy.feature import LAND
@@ -23,7 +25,27 @@ from odc.algo import erase_bad, mask_cleanup
 from odc.geo.geobox import GeoBox, GeoboxTiles
 from odc.geo.xr import xr_zeros
 
-
+def load_geometries(geometry_file: str) -> gpd.GeoDataFrame:
+    """
+    Load geometries from a shapefile or GeoPackage.
+    
+    Parameters
+    ----------
+    geometry_file : str
+        Path to a .shp or .gpkg file
+        
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        GeoDataFrame containing the geometries, reprojected to EPSG:4326 if needed
+    """
+    gdf = gpd.read_file(geometry_file)
+    
+    # Reproject to EPSG:4326 if not already
+    if gdf.crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+    
+    return gdf
 @dataclass(frozen=True)
 class JobConfig:
     dx: float
@@ -35,6 +57,8 @@ class JobConfig:
     bands: list[str]
     varname: str
     chunk_size: int
+    geometries: gpd.GeoDataFrame | None = None
+    use_geometry_mask: bool = False
 
     @property
     def crs(self) -> str:
@@ -130,9 +154,19 @@ class JobConfig:
             tile = self.tiles[idx]
             bbox = tile.boundingbox
             extent = bbox.left, bbox.right, bbox.bottom, bbox.top
-            igeoms = list(LAND.intersecting_geometries(extent))
-            is_land = len(igeoms) > 0
-            if is_land:
+            
+            # Check if tile should be processed
+            if self.geometries is not None and self.use_geometry_mask:
+                # Check if tile intersects with any geometry
+                tile_box = box(extent[0], extent[2], extent[1], extent[3])
+                intersects = self.geometries.geometry.intersects(tile_box).any()
+                is_valid = intersects
+            else:
+                # Use land mask from Cartopy
+                igeoms = list(LAND.intersecting_geometries(extent))
+                is_valid = len(igeoms) > 0
+            
+            if is_valid:
                 for date in self.time_data:
                     yield ChunkProcessingJob(
                         self, tile_index=idx, year=date.year, month=date.month

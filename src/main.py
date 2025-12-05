@@ -1,9 +1,11 @@
 from datetime import datetime
+from pathlib import Path
 
 import click
+import geopandas as gpd
 import zarr
 from coiled_app import spawn_coiled_jobs
-from lib import JobConfig, save_output_log
+from lib import JobConfig, save_output_log, load_geometries
 from storage import ZarrFSSpecStorage
 
 
@@ -22,10 +24,15 @@ from storage import ZarrFSSpecStorage
 )
 @click.option(
     "--bbox",
-    required=True,
     type=click.Tuple([float, float, float, float]),
     help="Bounding box for the data cube in lat/lon. "
-    "(min_lon, min_lat, max_lon, max_lat)",
+    "(min_lon, min_lat, max_lon, max_lat). Use this OR --geometry-file, not both.",
+)
+@click.option(
+    "--geometry-file",
+    type=click.Path(exists=True),
+    help="Path to a shapefile or GeoPackage containing geometries to process. "
+    "Supported formats: .shp, .gpkg",
 )
 @click.option(
     "--time-frequency-months",
@@ -98,10 +105,18 @@ from storage import ZarrFSSpecStorage
     default=True,
     help="Initialize the Zarr store before processing.",
 )
+@click.option(
+    "--use-geometry-mask",
+    is_flag=True,
+    default=False,
+    help="When using --geometry-file, only process tiles that intersect the geometries. "
+    "If not set, uses land mask from Cartopy.",
+)
 def main(
     start_date: datetime,
     end_date: datetime,
-    bbox: tuple[float, float, float, float],
+    bbox: tuple[float, float, float, float] | None,
+    geometry_file: str | None,
     time_frequency_months: int,
     resolution: float,
     chunk_size: int,
@@ -114,17 +129,35 @@ def main(
     limit: int | None,
     initialize: bool,
     debug: bool,
+    use_geometry_mask: bool,
 ):
+    # Validate that user provided either bbox or geometry_file, but not both
+    if bbox is None and geometry_file is None:
+        raise click.UsageError("Either --bbox or --geometry-file must be provided.")
+    if bbox is not None and geometry_file is not None:
+        raise click.UsageError("Cannot use both --bbox and --geometry-file. Choose one.")
+
+    # Load geometries if geometry file is provided
+    geometries = None
+    if geometry_file:
+        geometries = load_geometries(geometry_file)
+        # Extract bounds from geometries to define the overall spatial extent
+        bounds = tuple(geometries.total_bounds)  # (minx, miny, maxx, maxy)
+    else:
+        bounds = bbox
+
     job_config = JobConfig(
         dx=resolution,
         epsg=int(epsg),
-        bounds=bbox,
+        bounds=bounds,
         start_date=start_date,
         end_date=end_date,
         time_frequency_months=time_frequency_months,
         bands=bands,
         varname=varname,
         chunk_size=chunk_size,
+        geometries=geometries,
+        use_geometry_mask=use_geometry_mask,
     )
 
     storage = ZarrFSSpecStorage(uri=fsspec_uri)
@@ -134,7 +167,7 @@ def main(
 
     with click.progressbar(
         job_config.generate_jobs(limit=(limit or 0)),
-        label=f"Computing {job_config.num_tiles} tile intersections with land mask",
+        label=f"Computing {job_config.num_tiles} tile intersections with mask",
         length=job_config.num_jobs,
     ) as job_gen:
         jobs = list(job_gen)
