@@ -24,6 +24,7 @@ from cartopy.feature import LAND
 from odc.algo import erase_bad, mask_cleanup
 from odc.geo.geobox import GeoBox, GeoboxTiles
 from odc.geo.xr import xr_zeros
+import os
 
 def load_geometries(geometry_file: str) -> gpd.GeoDataFrame:
     """
@@ -367,6 +368,11 @@ def save_output_log(results: list[ChunkProcessingResult], fname: str) -> None:
         "region",
         "cloud_provider",
     )
+
+    # Create logs directory if it doesn't exist
+    logs_dir = os.path.dirname(fname)
+    if logs_dir and not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
 
     df = pd.DataFrame(
         [[getattr(r, f) for f in fields] for r in results if r is not None],
