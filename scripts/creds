@@ -1,0 +1,37 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+# Generate a .creds.env file with AWS and Coiled credentials
+# Sources:
+# - Environment variables in the current shell
+# - (Optional) You can export explicit env vars; profiles are not read
+#
+# Usage:
+#   ./script/creds            # writes .creds.env in repo root
+#   AWS_PROFILE=clay ./script/creds
+
+OUT_FILE=".creds.env"
+
+echo "# Generated $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OUT_FILE"
+
+# Region precedence: AWS_REGION > AWS_DEFAULT_REGION
+REGION_VALUE="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [[ -n "$REGION_VALUE" ]]; then
+  echo "AWS_REGION=$REGION_VALUE" >> "$OUT_FILE"
+  echo "AWS_DEFAULT_REGION=$REGION_VALUE" >> "$OUT_FILE"
+fi
+
+# If explicit env keys exist, write them
+[[ -n "${AWS_ACCESS_KEY_ID:-}" ]] && echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> "$OUT_FILE"
+[[ -n "${AWS_SECRET_ACCESS_KEY:-}" ]] && echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> "$OUT_FILE"
+[[ -n "${AWS_SESSION_TOKEN:-}" ]] && echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN" >> "$OUT_FILE"
+
+# Profiles are not read; rely solely on explicit env vars
+
+# Coiled credentials from env if present
+[[ -n "${COILED_TOKEN:-}" ]] && echo "COILED_TOKEN=$COILED_TOKEN" >> "$OUT_FILE"
+[[ -n "${COILED_API_TOKEN:-}" ]] && echo "COILED_API_TOKEN=$COILED_API_TOKEN" >> "$OUT_FILE"
+[[ -n "${COILED_ACCOUNT:-}" ]] && echo "COILED_ACCOUNT=$COILED_ACCOUNT" >> "$OUT_FILE"
+[[ -n "${COILED_CLUSTER:-}" ]] && echo "COILED_CLUSTER=$COILED_CLUSTER" >> "$OUT_FILE"
+
+echo "Wrote $OUT_FILE"

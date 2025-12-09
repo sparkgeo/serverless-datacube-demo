@@ -1,0 +1,8 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+IMAGE_NAME=${IMAGE_NAME:-ard-process}
+IMAGE_TAG=${IMAGE_TAG:-latest}
+
+docker build -t "$IMAGE_NAME:$IMAGE_TAG" .
+echo "Built $IMAGE_NAME:$IMAGE_TAG"

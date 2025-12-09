@@ -1,0 +1,22 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+IMAGE_NAME=${IMAGE_NAME:-ard-process}
+IMAGE_TAG=${IMAGE_TAG:-latest}
+
+# Default args can be overridden by passing flags to this script
+ARGS=("$@")
+
+if ! docker image inspect "$IMAGE_NAME:$IMAGE_TAG" >/dev/null 2>&1; then
+  ./scripts/build
+fi
+
+# generate .creds.env
+./scripts/creds
+
+docker run --rm \
+  --env-file .creds.env \
+  -v "$PWD/src:/app/src" \
+  -v "$PWD/data:/app/data" \
+  -v "$PWD/output:/app/output" \
+  "$IMAGE_NAME:$IMAGE_TAG" "${ARGS[@]}"
