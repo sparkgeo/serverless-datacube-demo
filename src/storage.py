@@ -32,7 +32,13 @@ class ZarrFSSpecStorage(AbstractStorage):
 
     def __init__(self, uri):
         self.uri = uri
-        self._store = zarr.storage.FsspecStore.from_url(uri)
+        if uri.startswith(('file://', '/', './')) or not '://' in uri:
+            # Local file system
+            path = uri.replace('file://', '') if uri.startswith('file://') else uri
+            self._store = zarr.storage.LocalStore(path)
+        else:
+            # Remote storage via fsspec
+            self._store = zarr.storage.FsspecStore.from_url(uri)
 
     def initialize(self):
         zsync(self._store.clear())

@@ -60,6 +60,7 @@ class JobConfig:
     chunk_size: int
     geometries: gpd.GeoDataFrame | None = None
     use_geometry_mask: bool = False
+    skip_land_filter: bool = False
 
     @property
     def crs(self) -> str:
@@ -157,7 +158,10 @@ class JobConfig:
             extent = bbox.left, bbox.right, bbox.bottom, bbox.top
             
             # Check if tile should be processed
-            if self.geometries is not None and self.use_geometry_mask:
+            if self.skip_land_filter:
+                # Process all tiles
+                is_valid = True
+            elif self.geometries is not None and self.use_geometry_mask:
                 # Check if tile intersects with any geometry
                 tile_box = box(extent[0], extent[2], extent[1], extent[3])
                 intersects = self.geometries.geometry.intersects(tile_box).any()

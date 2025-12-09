@@ -78,7 +78,7 @@ from storage import ZarrFSSpecStorage
     "--serverless-backend",
     required=True,
     default="coiled",
-    type=click.Choice(["coiled"]),
+    type=click.Choice(["coiled", "local"]),
 )
 @click.option(
     "--storage-backend",
@@ -112,6 +112,12 @@ from storage import ZarrFSSpecStorage
     help="When using --geometry-file, only process tiles that intersect the geometries. "
     "If not set, uses land mask from Cartopy.",
 )
+@click.option(
+    "--skip-land-filter",
+    is_flag=True,
+    default=False,
+    help="Skip Cartopy land filtering and process all tiles in the bounding box.",
+)
 def main(
     start_date: datetime,
     end_date: datetime,
@@ -130,6 +136,7 @@ def main(
     initialize: bool,
     debug: bool,
     use_geometry_mask: bool,
+    skip_land_filter: bool,
 ):
     # Validate that user provided either bbox or geometry_file, but not both
     if bbox is None and geometry_file is None:
@@ -158,6 +165,7 @@ def main(
         chunk_size=chunk_size,
         geometries=geometries,
         use_geometry_mask=use_geometry_mask,
+        skip_land_filter=skip_land_filter,
     )
 
     storage = ZarrFSSpecStorage(uri=fsspec_uri)
@@ -174,6 +182,9 @@ def main(
 
     if serverless_backend == "coiled":
         spawn = spawn_coiled_jobs
+    elif serverless_backend == "local":
+        from local_app import spawn_local_jobs
+        spawn = spawn_local_jobs
     else:
         raise NotImplementedError
 
