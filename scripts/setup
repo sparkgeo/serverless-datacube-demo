@@ -1,9 +1,0 @@
-#!/usr/bin/env zsh
-set -euo pipefail
-
-# Install local Python deps and prepare output dir
-if [[ -f requirements.txt ]]; then
-  python -m pip install -r requirements.txt
-fi
-mkdir -p output
-echo "Setup complete"

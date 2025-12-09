@@ -61,7 +61,7 @@ Options:
 
 Vermont, 4 years, store in S3 Zarr
 ```
-python src/main.py --start-date 2020-01-01 --end-date 2023-12-31 --bbox -73.43 42.72 -71.47 45.02 --storage-backend fsspec --fsspec-uri s3://testing-embeddings-184161167200-ca-central-1/zarr_app/vermont2
+python src/main.py --start-date 2020-01-01 --end-date 2023-12-31 --bbox -73.43 42.72 -71.47 45.02 --storage-backend fsspec --fsspec-uri s3://testing-embeddings/zarr_app/vermont2
 ```
 
 ## Docker
