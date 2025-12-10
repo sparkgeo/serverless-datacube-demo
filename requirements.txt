@@ -1,6 +1,5 @@
 bokeh==3.8.1
-boto3                # <— unpinned so it can match aiobotocore/s3fs
-Cartopy==0.25.0
+boto3                
 click==8.3.0
 coiled==1.129.1
 

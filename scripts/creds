@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-# Generate a .creds.env file with AWS and Coiled credentials
+# Generate a .creds.env file with AWS credentials
 # Sources:
 # - Environment variables in the current shell
 # - (Optional) You can export explicit env vars; profiles are not read
@@ -27,11 +27,4 @@ fi
 [[ -n "${AWS_SESSION_TOKEN:-}" ]] && echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN" >> "$OUT_FILE"
 
 # Profiles are not read; rely solely on explicit env vars
-
-# Coiled credentials from env if present
-[[ -n "${COILED_TOKEN:-}" ]] && echo "COILED_TOKEN=$COILED_TOKEN" >> "$OUT_FILE"
-[[ -n "${COILED_API_TOKEN:-}" ]] && echo "COILED_API_TOKEN=$COILED_API_TOKEN" >> "$OUT_FILE"
-[[ -n "${COILED_ACCOUNT:-}" ]] && echo "COILED_ACCOUNT=$COILED_ACCOUNT" >> "$OUT_FILE"
-[[ -n "${COILED_CLUSTER:-}" ]] && echo "COILED_CLUSTER=$COILED_CLUSTER" >> "$OUT_FILE"
-
 echo "Wrote $OUT_FILE"

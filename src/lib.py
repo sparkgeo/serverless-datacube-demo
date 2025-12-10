@@ -20,11 +20,14 @@ import geopandas as gpd
 from shapely.geometry import box
 import pystac_client
 import zarr
-from cartopy.feature import LAND
 from odc.algo import erase_bad, mask_cleanup
 from odc.geo.geobox import GeoBox, GeoboxTiles
 from odc.geo.xr import xr_zeros
 import os
+from hooks import (
+    DefaultCloudMaskHook,
+    SCLCloudMaskHook,
+)
 
 def load_geometries(geometry_file: str) -> gpd.GeoDataFrame:
     """
@@ -59,8 +62,7 @@ class JobConfig:
     varname: str
     chunk_size: int
     geometries: gpd.GeoDataFrame | None = None
-    use_geometry_mask: bool = False
-    skip_land_filter: bool = False
+    cloud_mask_hook: DefaultCloudMaskHook | None = None
 
     @property
     def crs(self) -> str:
@@ -157,28 +159,13 @@ class JobConfig:
             bbox = tile.boundingbox
             extent = bbox.left, bbox.right, bbox.bottom, bbox.top
             
-            # Check if tile should be processed
-            if self.skip_land_filter:
-                # Process all tiles
-                is_valid = True
-            elif self.geometries is not None and self.use_geometry_mask:
-                # Check if tile intersects with any geometry
-                tile_box = box(extent[0], extent[2], extent[1], extent[3])
-                intersects = self.geometries.geometry.intersects(tile_box).any()
-                is_valid = intersects
-            else:
-                # Use land mask from Cartopy
-                igeoms = list(LAND.intersecting_geometries(extent))
-                is_valid = len(igeoms) > 0
-            
-            if is_valid:
-                for date in self.time_data:
-                    yield ChunkProcessingJob(
-                        self, tile_index=idx, year=date.year, month=date.month
-                    )
-                    count += 1
-                    if limit and count >= limit:
-                        return
+            for date in self.time_data:
+                yield ChunkProcessingJob(
+                    self, tile_index=idx, year=date.year, month=date.month
+                )
+                count += 1
+                if limit and count >= limit:
+                    return
 
 
 @dataclass(frozen=True)
@@ -257,31 +244,26 @@ class ChunkProcessingJob:
                 search_duration=tic2 - tic1,
                 load_duration=0,
                 write_duration=0,
-                region=os.environ.get("MODAL_REGION", None),
-                cloud_provider=os.environ.get("MODAL_CLOUD_PROVIDER", None),
+                region=None,
+                cloud_provider=None
             )
 
+        cmh = self.config.cloud_mask_hook or DefaultCloudMaskHook()
         bands = list(self.config.bands)
+        bands_to_load = cmh.get_bands(bands)
+   
         ds = odc.stac.load(
             items,
-            bands=["scl"] + bands,
+            bands=bands_to_load,
             chunks={"time": 1, "x": 600, "y": 600},
             geobox=geobox,
             resampling="bilinear",
             groupby="solar_day",
         )
 
-        VEGETATION = 4
-        NOT_VEGETATED = 5
-        allowed_values = [VEGETATION, NOT_VEGETATED]
-
-        cloud_mask = ~ds.scl.isin(allowed_values)
-        cloud_mask = mask_cleanup(cloud_mask, [("closing", 5), ("opening", 5)])
-        ds_masked = erase_bad(ds[bands], cloud_mask)
-
+        da = cmh.apply(ds, self.config.bands)
         rgb_median = (
-            ds_masked.where(ds_masked > 0)
-            .to_dataarray(dim="band")
+            da
             .median(dim="time")
             .astype("uint16")
             .transpose(..., "band")

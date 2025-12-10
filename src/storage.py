@@ -41,7 +41,11 @@ class ZarrFSSpecStorage(AbstractStorage):
             self._store = zarr.storage.FsspecStore.from_url(uri)
 
     def initialize(self):
-        zsync(self._store.clear())
+        try:
+            zsync(self._store.clear())
+        except FileNotFoundError:
+            # Store root may not exist yet; that's fine for initialization
+            pass
 
     @contextmanager
     def get_zarr_store(self):

@@ -6,6 +6,10 @@ import geopandas as gpd
 import zarr
 from coiled_app import spawn_coiled_jobs
 from lib import JobConfig, save_output_log, load_geometries
+from hooks import (
+    DefaultCloudMaskHook,
+    SCLCloudMaskHook,
+)
 from storage import ZarrFSSpecStorage
 
 
@@ -57,7 +61,7 @@ from storage import ZarrFSSpecStorage
 @click.option(
     "--bands",
     multiple=True,
-    default=["red", "green", "blue"],
+    default=["red", "green", "blue", "nir"],
     show_default=True,
     help="Bands to include in the data cube. Must match band names from odc.stac.load",
 )
@@ -106,17 +110,11 @@ from storage import ZarrFSSpecStorage
     help="Initialize the Zarr store before processing.",
 )
 @click.option(
-    "--use-geometry-mask",
-    is_flag=True,
-    default=False,
-    help="When using --geometry-file, only process tiles that intersect the geometries. "
-    "If not set, uses land mask from Cartopy.",
-)
-@click.option(
-    "--skip-land-filter",
-    is_flag=True,
-    default=False,
-    help="Skip Cartopy land filtering and process all tiles in the bounding box.",
+    "--cloud-mask",
+    type=click.Choice(["none", "scl"]),
+    default="none",
+    show_default=True,
+    help="Cloud masking: 'none' (pass-through) or 'scl' (Sentinel-2 SCL-based mask).",
 )
 def main(
     start_date: datetime,
@@ -135,8 +133,7 @@ def main(
     limit: int | None,
     initialize: bool,
     debug: bool,
-    use_geometry_mask: bool,
-    skip_land_filter: bool,
+    cloud_mask: str,
 ):
     # Validate that user provided either bbox or geometry_file, but not both
     if bbox is None and geometry_file is None:
@@ -153,6 +150,13 @@ def main(
     else:
         bounds = bbox
 
+    # Select cloud mask hook from CLI
+    cloud_mask_mapping = {
+        "none": DefaultCloudMaskHook(),
+        "scl": SCLCloudMaskHook(),
+    }
+    cloud_hook = cloud_mask_mapping[cloud_mask]
+
     job_config = JobConfig(
         dx=resolution,
         epsg=int(epsg),
@@ -164,8 +168,7 @@ def main(
         varname=varname,
         chunk_size=chunk_size,
         geometries=geometries,
-        use_geometry_mask=use_geometry_mask,
-        skip_land_filter=skip_land_filter,
+        cloud_mask_hook=cloud_hook,
     )
 
     storage = ZarrFSSpecStorage(uri=fsspec_uri)
@@ -175,7 +178,7 @@ def main(
 
     with click.progressbar(
         job_config.generate_jobs(limit=(limit or 0)),
-        label=f"Computing {job_config.num_tiles} tile intersections with mask",
+        label=f"Computing {job_config.num_tiles} tile intersections",
         length=job_config.num_jobs,
     ) as job_gen:
         jobs = list(job_gen)
